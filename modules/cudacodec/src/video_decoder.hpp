@@ -49,9 +49,9 @@ namespace cv { namespace cudacodec { namespace detail {
 class VideoDecoder
 {
 public:
-    VideoDecoder(const Codec& codec, CUcontext ctx, CUvideoctxlock lock) : ctx_(ctx), lock_(lock), decoder_(0)
+    VideoDecoder(const FormatInfo& videoFormat, CUcontext ctx, CUvideoctxlock lock) : ctx_(ctx), lock_(lock), decoder_(0)
     {
-        videoFormat_.codec = codec;
+        create(videoFormat);
     }
 
     ~VideoDecoder()
@@ -63,18 +63,17 @@ public:
     void release();
 
     // Get the code-type currently used.
-    cudaVideoCodec codec() const { return static_cast<cudaVideoCodec>(videoFormat_.codec); }
-    unsigned long maxDecodeSurfaces() const { return videoFormat_.ulNumDecodeSurfaces; }
+    cudaVideoCodec codec() const { return createInfo_.CodecType; }
+    unsigned long maxDecodeSurfaces() const { return createInfo_.ulNumDecodeSurfaces; }
 
-    unsigned long frameWidth() const { return videoFormat_.ulWidth; }
-    unsigned long frameHeight() const { return videoFormat_.ulHeight; }
-    FormatInfo format() { AutoLock autoLock(mtx_); return videoFormat_;}
+    unsigned long frameWidth() const { return createInfo_.ulWidth; }
+    unsigned long frameHeight() const { return createInfo_.ulHeight; }
 
-    unsigned long targetWidth() { return videoFormat_.width; }
-    unsigned long targetHeight() { return videoFormat_.height; }
+    unsigned long targetWidth() const { return createInfo_.ulTargetWidth; }
+    unsigned long targetHeight() const { return createInfo_.ulTargetHeight; }
 
-    cudaVideoChromaFormat chromaFormat() const { return static_cast<cudaVideoChromaFormat>(videoFormat_.chromaFormat); }
-    int nBitDepthMinus8() const { return videoFormat_.nBitDepthMinus8; }
+    cudaVideoChromaFormat chromaFormat() const { return createInfo_.ChromaFormat; }
+    int nBitDepthMinus8() const { return createInfo_.bitDepthMinus8; }
 
     bool decodePicture(CUVIDPICPARAMS* picParams)
     {
@@ -88,7 +87,8 @@ public:
 
         cuSafeCall( cuvidMapVideoFrame(decoder_, picIdx, &ptr, &pitch, &videoProcParams) );
 
-        return cuda::GpuMat(frameHeight() * 3 / 2, frameWidth(), CV_8UC1, (void*) ptr, pitch);
+
+        return cuda::GpuMat(targetHeight() * 3 / 2, targetWidth(), CV_8UC1, (void*) ptr, pitch);
     }
 
     void unmapFrame(cuda::GpuMat& frame)
@@ -98,11 +98,10 @@ public:
     }
 
 private:
-    CUcontext ctx_ = 0;
     CUvideoctxlock lock_;
-    CUvideodecoder        decoder_ = 0;
-    FormatInfo videoFormat_ = {};
-    Mutex mtx_;
+    CUcontext ctx_;
+    CUVIDDECODECREATEINFO createInfo_;
+    CUvideodecoder        decoder_;
 };
 
 }}}

@@ -44,13 +44,14 @@
 
 #include "opencv2/core/cuda/common.hpp"
 #include "opencv2/core/cuda/vec_math.hpp"
-#include "opencv2/cudev.hpp"
 
 namespace cv { namespace cuda { namespace device
 {
     namespace hough_segments
     {
-        __global__ void houghLinesProbabilistic(cv::cudev::Texture<uchar> src, const PtrStepSzi accum,
+        texture<uchar, cudaTextureType2D, cudaReadModeElementType> tex_mask(false, cudaFilterModePoint, cudaAddressModeClamp);
+
+        __global__ void houghLinesProbabilistic(const PtrStepSzi accum,
                                                 int4* out, const int maxSize,
                                                 const float rho, const float theta,
                                                 const int lineGap, const int lineLength,
@@ -156,7 +157,7 @@ namespace cv { namespace cuda { namespace device
 
                 for (;;)
                 {
-                    if (src(p1.y, p1.x))
+                    if (tex2D(tex_mask, p1.x, p1.y))
                     {
                         gap = 0;
 
@@ -212,17 +213,16 @@ namespace cv { namespace cuda { namespace device
             }
         }
 
-        int houghLinesProbabilistic_gpu(GpuMat &mask, PtrStepSzi accum, int4* out, int maxSize, float rho, float theta, int lineGap, int lineLength, int* counterPtr, cudaStream_t stream)
+        int houghLinesProbabilistic_gpu(PtrStepSzb mask, PtrStepSzi accum, int4* out, int maxSize, float rho, float theta, int lineGap, int lineLength, int* counterPtr, cudaStream_t stream)
         {
             cudaSafeCall( cudaMemsetAsync(counterPtr, 0, sizeof(int), stream) );
 
             const dim3 block(32, 8);
             const dim3 grid(divUp(accum.cols - 2, block.x), divUp(accum.rows - 2, block.y));
-            
-            cv::cudev::GpuMat_<uchar> src_(mask);
-            cv::cudev::Texture<uchar> tex(src_, false, cudaFilterModePoint, cudaAddressModeClamp);
 
-            houghLinesProbabilistic<<<grid, block, 0, stream>>>(tex, accum,
+            bindTexture(&tex_mask, mask);
+
+            houghLinesProbabilistic<<<grid, block, 0, stream>>>(accum,
                                                      out, maxSize,
                                                      rho, theta,
                                                      lineGap, lineLength,

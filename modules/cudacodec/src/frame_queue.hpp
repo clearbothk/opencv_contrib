@@ -43,27 +43,17 @@
 
 #ifndef __FRAME_QUEUE_HPP__
 #define __FRAME_QUEUE_HPP__
-#include <queue>
 
 #include "opencv2/core/utility.hpp"
-
-class RawPacket {
-public:
-    RawPacket(const unsigned char* _data, const size_t _size = 0, const bool _containsKeyFrame = false);
-    unsigned char* Data() const { return *data; }
-    size_t size;
-    bool containsKeyFrame;
-private:
-    cv::Ptr<unsigned char*> data = 0;
-};
 
 namespace cv { namespace cudacodec { namespace detail {
 
 class FrameQueue
 {
 public:
-    ~FrameQueue();
-    void init(const int _maxSz);
+    static const int MaximumSize = 20; // MAX_FRM_CNT;
+
+    FrameQueue();
 
     void endDecode() { endOfDecode_ = true; }
     bool isEndOfDecode() const { return endOfDecode_ != 0;}
@@ -74,7 +64,7 @@ public:
     // available, the method returns false.
     bool waitUntilFrameAvailable(int pictureIndex);
 
-    void enqueue(const CUVIDPARSERDISPINFO* picParams, const std::vector<RawPacket> rawPackets);
+    void enqueue(const CUVIDPARSERDISPINFO* picParams);
 
     // Deque the next frame.
     // Parameters:
@@ -82,7 +72,7 @@ public:
     // Returns:
     //      true, if a new frame was returned,
     //      false, if the queue was empty and no new frame could be returned.
-    bool dequeue(CUVIDPARSERDISPINFO& displayInfo, std::vector<RawPacket>& rawPackets);
+    bool dequeue(CUVIDPARSERDISPINFO& displayInfo);
 
     void releaseFrame(const CUVIDPARSERDISPINFO& picParams) { isFrameInUse_[picParams.picture_index] = false; }
 
@@ -90,13 +80,13 @@ private:
     bool isInUse(int pictureIndex) const { return isFrameInUse_[pictureIndex] != 0; }
 
     Mutex mtx_;
-    volatile int* isFrameInUse_ = 0;
-    volatile int endOfDecode_ = 0;
-    int framesInQueue_ = 0;
-    int readPosition_ = 0;
-    std::vector< CUVIDPARSERDISPINFO> displayQueue_;
-    int maxSz = 0;
-    std::queue<RawPacket> rawPacketQueue;
+
+    volatile int isFrameInUse_[MaximumSize];
+    volatile int endOfDecode_;
+
+    int framesInQueue_;
+    int readPosition_;
+    CUVIDPARSERDISPINFO displayQueue_[MaximumSize];
 };
 
 }}}

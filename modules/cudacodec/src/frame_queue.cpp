@@ -45,22 +45,13 @@
 
 #ifdef HAVE_NVCUVID
 
-RawPacket::RawPacket(const unsigned char* _data, const size_t _size, const bool _containsKeyFrame) : size(_size), containsKeyFrame(_containsKeyFrame) {
-    data = cv::makePtr<unsigned char*>(new unsigned char[size]);
-    memcpy(*data, _data, size);
-};
-
-cv::cudacodec::detail::FrameQueue::~FrameQueue() {
-    if (isFrameInUse_)
-        delete[] isFrameInUse_;
-}
-
-void cv::cudacodec::detail::FrameQueue::init(const int _maxSz) {
-    AutoLock autoLock(mtx_);
-    maxSz = _maxSz;
-    displayQueue_ = std::vector<CUVIDPARSERDISPINFO>(maxSz, CUVIDPARSERDISPINFO());
-    isFrameInUse_ = new volatile int[maxSz];
-    std::memset((void*)isFrameInUse_, 0, sizeof(*isFrameInUse_) * maxSz);
+cv::cudacodec::detail::FrameQueue::FrameQueue() :
+    endOfDecode_(0),
+    framesInQueue_(0),
+    readPosition_(0)
+{
+    std::memset(displayQueue_, 0, sizeof(displayQueue_));
+    std::memset((void*) isFrameInUse_, 0, sizeof(isFrameInUse_));
 }
 
 bool cv::cudacodec::detail::FrameQueue::waitUntilFrameAvailable(int pictureIndex)
@@ -77,7 +68,7 @@ bool cv::cudacodec::detail::FrameQueue::waitUntilFrameAvailable(int pictureIndex
     return true;
 }
 
-void cv::cudacodec::detail::FrameQueue::enqueue(const CUVIDPARSERDISPINFO* picParams, const std::vector<RawPacket> rawPackets)
+void cv::cudacodec::detail::FrameQueue::enqueue(const CUVIDPARSERDISPINFO* picParams)
 {
     // Mark the frame as 'in-use' so we don't re-use it for decoding until it is no longer needed
     // for display
@@ -91,12 +82,10 @@ void cv::cudacodec::detail::FrameQueue::enqueue(const CUVIDPARSERDISPINFO* picPa
         {
             AutoLock autoLock(mtx_);
 
-            if (framesInQueue_ < maxSz)
+            if (framesInQueue_ < MaximumSize)
             {
-                const int writePosition = (readPosition_ + framesInQueue_) % maxSz;
-                displayQueue_.at(writePosition) = *picParams;
-                for (const auto& rawPacket : rawPackets)
-                    rawPacketQueue.push(rawPacket);
+                int writePosition = (readPosition_ + framesInQueue_) % MaximumSize;
+                displayQueue_[writePosition] = *picParams;
                 framesInQueue_++;
                 isFramePlaced = true;
             }
@@ -110,19 +99,15 @@ void cv::cudacodec::detail::FrameQueue::enqueue(const CUVIDPARSERDISPINFO* picPa
     } while (!isEndOfDecode());
 }
 
-bool cv::cudacodec::detail::FrameQueue::dequeue(CUVIDPARSERDISPINFO& displayInfo, std::vector<RawPacket>& rawPackets)
+bool cv::cudacodec::detail::FrameQueue::dequeue(CUVIDPARSERDISPINFO& displayInfo)
 {
     AutoLock autoLock(mtx_);
 
     if (framesInQueue_ > 0)
     {
         int entry = readPosition_;
-        displayInfo = displayQueue_.at(entry);
-        while (!rawPacketQueue.empty()) {
-            rawPackets.push_back(rawPacketQueue.front());
-            rawPacketQueue.pop();
-        }
-        readPosition_ = (entry + 1) % maxSz;
+        displayInfo = displayQueue_[entry];
+        readPosition_ = (entry + 1) % MaximumSize;
         framesInQueue_--;
         return true;
     }
